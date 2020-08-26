@@ -1,0 +1,169 @@
+import pandas as pd
+import numpy as np
+import statsmodels.formula.api as smf
+import matplotlib.pyplot as plt
+plt.style.use('seaborn-white')
+plt.rcParams['figure.figsize'] = [12,6]
+plt.rcParams["font.weight"] = "bold"
+plt.rcParams["axes.labelweight"] = "bold"
+plt.rcParams["font.size"] = 15
+
+Merv = pd.read_excel("/Users/cx/Downloads/merval_actualizado.xlsx",
+                     index_col=0)
+
+PBI = pd.read_excel("/Users/cx/Downloads/PBI_Argentina.xlsx",
+                     index_col=0, header=2, usecols="A:C", nrows=93)
+
+fig, (ax1, ax2) = plt.subplots(nrows=2, sharex=True, figsize=(12,7))
+ax1.set(title="Merval en dólares")
+ax1.plot(Merv["Merval_dlr"], label="Merval en USD", c="k")
+ax1.axvline(PBI["PBI Base 1"].loc["1999-01-01":"2002-12-31"].idxmin(),
+            c="r", ls="--")
+ax1.axvline(PBI["PBI Base 1"].loc["2008-01-01":"2009-12-31"].idxmin(),
+            c="r", ls="--")
+ax1.axvline(PBI["PBI Base 1"].loc["2011-01-01":"2013-12-31"].idxmin(),
+            c="r", ls="--")
+ax1.grid(True)
+#ax1.legend()
+
+ax2.set(title="PBI Arg")
+ax2.plot(PBI["PBI Base 1"], c="dimgray")
+ax2.axvline(PBI["PBI Base 1"].loc["1999-01-01":"2002-12-31"].idxmin(),
+            c="r", ls="--", label="Pisos de actividad")
+ax2.axvline(PBI["PBI Base 1"].loc["2008-01-01":"2009-12-31"].idxmin(),
+            c="r", ls="--")
+ax2.axvline(PBI["PBI Base 1"].loc["2011-01-01":"2013-12-31"].idxmin(),
+            c="r", ls="--")
+ax2.legend()
+ax2.fill_between(PBI.index, PBI["PBI Base 1"], 0.8,
+                 color="silver", alpha=0.6)
+plt.show()
+
+#==============================================================================
+Merv_anual = Merv.copy()
+Merv_anual = Merv_anual["Merval_dlr"].resample("Y").last().to_frame()
+Merv_anual["var_merv"] = Merv_anual["Merval_dlr"].pct_change()
+
+PBI_anual = PBI.copy()
+PBI_anual = PBI_anual["PBI Base 1"].resample("Y").last().to_frame()
+PBI_anual["Var_anual_PBI"] = PBI_anual["PBI Base 1"].pct_change()
+
+data = pd.merge(left=PBI_anual["Var_anual_PBI"], right=Merv_anual["var_merv"], how='inner',
+                left_on=PBI_anual.index, right_on=Merv_anual.index)
+data.columns= ["Date", "PBI", "Merval"]
+data.set_index("Date", inplace=True)
+data.dropna(inplace=True)
+# Regression con statsmodels
+lm = smf.ols(formula="Merval~PBI", data=data).fit()
+print(lm.summary())
+
+Merv_pred = lm.predict(pd.DataFrame(data["PBI"]))
+
+plt.title(" Variaciones anuales Merval y PBI (1997-2020)",
+          fontweight="bold", fontsize=20)
+plt.plot(data.PBI, data.Merval, "ro", label="Datos")
+plt.plot(data.PBI, Merv_pred, c="b", label="proyección")
+plt.ylabel("% Merval")
+plt.xlabel("% PBI")
+plt.axvline(0,ls="--", c="k", lw=0.8)
+plt.axhline(0,ls="--", c="k", lw=0.8)
+#plt.text(data.PBI.min(), data.Merval.max()*.6, f'{lm.params}')
+plt.text(data.PBI.min(), data.Merval.max()*.7, f'R cuadrado = {round(lm.rsquared,2)}')
+plt.legend()
+plt.show()
+
+#==============================================================================
+
+PBI_anual["t+1"] = PBI_anual["Var_anual_PBI"].shift(-1)
+PBI_anual.dropna(inplace=True)
+
+data = pd.merge(left=PBI_anual["t+1"], right=Merv_anual["var_merv"], how='inner',
+                left_on=PBI_anual.index, right_on=Merv_anual.index)
+data.columns= ["Date", "PBI", "Merval"]
+data.set_index("Date", inplace=True)
+
+# Regression con statsmodels
+lm = smf.ols(formula="Merval~PBI", data=data).fit()
+print(lm.summary())
+
+Merv_pred = lm.predict(pd.DataFrame(data["PBI"]))
+
+plt.title(" Variaciones anuales Merval y PBI del año siguiente (1997-2019)",
+          fontweight="bold", fontsize=20)
+plt.plot(data.PBI, data.Merval, "ro", label="Datos")
+plt.plot(data.PBI, Merv_pred, c="b", label="Proyección")
+plt.ylabel("% Merval")
+plt.xlabel("% PBI")
+plt.axvline(0,ls="--", c="k", lw=0.8)
+plt.axhline(0,ls="--", c="k", lw=0.8)
+#plt.text(data.PBI.min(), data.Merval.max()*.4, f'{lm.params}')
+plt.text(data.PBI.min(), data.Merval.max()*.66, f'R cuadrado = {round(lm.rsquared,2)}')
+plt.legend()
+plt.show()
+
+#==============================================================================
+# Regresión multiple con PBI actual y futuro
+data = pd.merge(left=PBI_anual, right=Merv_anual["var_merv"], how='inner',
+                left_on=PBI_anual.index, right_on=Merv_anual.index)
+data.columns= ["Date","PBI_Base1", "PBI", "PBI_Futuro", "Merval"]
+data.set_index("Date", inplace=True)
+
+# Regression con statsmodels
+lm2 = smf.ols(formula='Merval~PBI+PBI_Futuro', data=data).fit()
+print(lm2.summary())
+
+#==============================================================================
+
+Merv_trim = Merv.copy()
+Merv_trim = Merv_trim["Merval_dlr"].resample("Q").last().to_frame()
+Merv_trim["var_merv"] = Merv_trim["Merval_dlr"].pct_change()
+
+data = pd.merge(left=PBI["Var trim PBI"], right=Merv_trim["var_merv"], how='inner',
+                left_on=PBI.index, right_on=Merv_trim.index)
+data.columns= ["Date", "PBI", "Merval"]
+data.set_index("Date", inplace=True)
+
+# Regression con statsmodels
+lm = smf.ols(formula="Merval~PBI", data=data).fit()
+print(lm.summary())
+
+Merv_pred = lm.predict(pd.DataFrame(data["PBI"]))
+
+plt.title(" Variaciones trimestrales Merval y PBI (1997-2020)",
+          fontweight="bold", fontsize=20)
+plt.plot(data.PBI, data.Merval, "ro")
+plt.plot(data.PBI, Merv_pred, c="b", ls="--")
+plt.ylabel("% Merval")
+plt.xlabel("% PBI")
+plt.axvline(0,ls="--", c="k", lw=0.8)
+plt.axhline(0,ls="--", c="k", lw=0.8)
+#plt.text(data.PBI.min(), data.Merval.max()*.6, f'{lm.params}')
+plt.text(data.PBI.min(), data.Merval.max()*.9, f'R cuadrado = {round(lm.rsquared,2)}')
+plt.show()
+
+#==============================================================================
+PBI["Trim_futuro"] = PBI["Var trim PBI"].shift(-1)
+PBI.dropna(inplace=True)
+
+data = pd.merge(left=PBI["Trim_futuro"], right=Merv_trim["var_merv"], how='inner',
+                left_on=PBI.index, right_on=Merv_trim.index)
+data.columns= ["Date", "PBI", "Merval"]
+data.set_index("Date", inplace=True)
+
+# Regression con statsmodels
+lm = smf.ols(formula="Merval~PBI", data=data).fit()
+print(lm.summary())
+
+Merv_pred = lm.predict(pd.DataFrame(data["PBI"]))
+
+plt.title(" Variaciones trimestrales Merval y PBI(t+1) (1997-2020)",
+          fontweight="bold", fontsize=20)
+plt.plot(data.PBI, data.Merval, "ro")
+plt.plot(data.PBI, Merv_pred, c="b", ls="--")
+plt.ylabel("% Merval")
+plt.xlabel("% PBI")
+plt.axvline(0,ls="--", c="k", lw=0.8)
+plt.axhline(0,ls="--", c="k", lw=0.8)
+#plt.text(data.PBI.min(), data.Merval.max()*.6, f'{lm.params}')
+plt.text(data.PBI.min(), data.Merval.max()*.9, f'R cuadrado = {round(lm.rsquared,2)}')
+plt.show()
